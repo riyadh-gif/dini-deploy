@@ -1,0 +1,9 @@
+# Runtime deps for the Pi5 inference server (arm64). Torch NOT required:
+# cluster centers are pre-extracted to artifacts/cluster_centers.npy.
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+pydantic==2.*
+numpy==1.26.*
+# CPU fallback encoder backend (BACKEND=onnx). For BACKEND=hailo this is unused;
+# the Hailo path uses hailort/hailo_platform installed on the Pi via `hailo-all`.
+onnxruntime==1.19.*

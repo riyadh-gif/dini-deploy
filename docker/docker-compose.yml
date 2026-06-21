@@ -1,0 +1,69 @@
+# docker-compose for the MultiDeepC on-device inference server.
+#
+# Two services share the same image (Dockerfile.runtime) and REST contract;
+# they differ only by the BACKEND env and the hardware they require.
+#
+#   runtime-onnx   CPU bring-up service. Runs multideepc_encode.onnx via
+#                  onnxruntime. Works on ANY arm64/x86 box (incl. the dev
+#                  machine and a bare Pi 5) with no Hailo driver. Use this to
+#                  validate the container/plumbing end to end.
+#                      docker compose up runtime-onnx
+#
+#   runtime-hailo  Production service (commented out). Runs the compiled
+#                  multideepc_encode.hef on the Hailo-8L NPU. ONLY runs on the
+#                  Raspberry Pi 5 that has `hailo-all` installed and the
+#                  /dev/hailo0 PCIe device present. Uncomment on the Pi once the
+#                  HEF + matching HailoRT are wired up.
+
+services:
+  runtime-onnx:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+    image: multideepc-runtime:onnx
+    container_name: multideepc-runtime-onnx
+    environment:
+      BACKEND: onnx
+      ONNX_PATH: artifacts/multideepc_encode.onnx
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # --- Production NPU service. ONLY runs on the Raspberry Pi 5 + Hailo-8L. ---
+  # Requirements on the host Pi:
+  #   * `hailo-all` installed (HailoRT + PCIe kernel driver), `/dev/hailo0` present
+  #   * the image must include hailo_platform/hailort matching the Pi's HailoRT
+  #     (install it in Dockerfile.runtime against the target Pi's version)
+  #   * artifacts/multideepc_encode.hef baked into the image (see Dockerfile.runtime)
+  # Uncomment on the Pi to enable:
+  #
+  # runtime-hailo:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.runtime
+  #   image: multideepc-runtime:hailo
+  #   container_name: multideepc-runtime-hailo
+  #   environment:
+  #     BACKEND: hailo
+  #     HEF_PATH: artifacts/multideepc_encode.hef
+  #   ports:
+  #     - "8080:8080"
+  #   # Map the Hailo PCIe NPU into the container.
+  #   devices:
+  #     - "/dev/hailo0:/dev/hailo0"
+  #   # privileged eases PCIe/driver access; prefer the narrower device mapping
+  #   # above + group_add if your HailoRT setup allows it.
+  #   privileged: true
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 10s

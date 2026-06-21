@@ -1,0 +1,35 @@
+# Runtime image for Raspberry Pi 5 + Hailo-8L (arm64/aarch64).
+#
+# Build on the x86 dev machine with buildx (QEMU emulation), run ONLY on the Pi:
+#   docker buildx build --platform linux/arm64 -f Dockerfile.runtime \
+#       -t multideepc-runtime:arm64 --load .
+#
+# Two inference backends (env BACKEND):
+#   - onnx  (default here): self-contained, runs on CPU, validates plumbing on
+#            ANY arm64/x86 box without the Hailo driver. Good for bring-up.
+#   - hailo: runs multideepc_encode.hef on the NPU. Requires the HOST Pi to have
+#            `hailo-all` installed AND the hailort python pkg visible to the
+#            container (mount/install matching the Pi's HailoRT version). Because
+#            HailoRT must match the kernel driver + the DFC that built the HEF,
+#            the production image is finalized on/against the target Pi.
+FROM arm64v8/python:3.11-slim-bookworm
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-runtime.txt .
+RUN pip install --no-cache-dir -r requirements-runtime.txt
+
+COPY dec_head.py app.py ./
+COPY artifacts/multideepc_encode.onnx artifacts/cluster_centers.npy ./artifacts/
+# Compiled HEF (DFC 3.33.1, target hailo8l, synthetic calibration):
+COPY artifacts/multideepc_encode.hef ./artifacts/
+
+ENV BACKEND=onnx \
+    ONNX_PATH=artifacts/multideepc_encode.onnx \
+    HEF_PATH=artifacts/multideepc_encode.hef
+
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8080/health || exit 1
+EXPOSE 8080
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]

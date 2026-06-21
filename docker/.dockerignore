@@ -1,0 +1,35 @@
+# Keep the build context small. The runtime image only needs app.py, dec_head.py,
+# requirements-runtime.txt, and the artifacts the encoder/DEC head load.
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Raw torch checkpoints are large and NOT needed in the runtime image
+# (cluster centers are pre-extracted to artifacts/cluster_centers.npy).
+*.pth
+**/*.pth
+
+# Dev / build-only scripts and notes not required at runtime
+export_onnx.py
+hailo_compile.py
+verify_multideepc.py
+multideepc.py
+*.md
+
+# VCS / editor noise
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# NOTE: do NOT ignore the runtime artifacts the server loads:
+#   artifacts/*.onnx   (BACKEND=onnx encoder)
+#   artifacts/*.npy    (DEC cluster centers)
+#   artifacts/*.hef    (BACKEND=hailo encoder, when present)
+!artifacts/*.onnx
+!artifacts/*.npy
+!artifacts/*.hef

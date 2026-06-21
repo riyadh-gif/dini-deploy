@@ -1,0 +1,10 @@
+# Python deps for the Hailo DFC compile side (amd64 / x86_64 only).
+#
+# NOTE: The Hailo Dataflow Compiler itself (hailo_sdk_client / hailo_sdk_common)
+# is NOT listed here. It is a GATED wheel that must be downloaded manually from
+# the Hailo Developer Zone and installed separately (see Dockerfile.compile,
+# build-arg HAILO_DFC_WHEEL). It is NOT available on public PyPI.
+#
+# Only the extra deps that are NOT bundled inside the Hailo wheel go here:
+numpy==1.26.*
+onnx==1.16.*

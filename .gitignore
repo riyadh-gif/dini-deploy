@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+hailo-dfc/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build / logs
+*.log
+dfc_install.log
+*.har
+
+# Keep tracked: artifacts/*.onnx, artifacts/*.hef, artifacts/*.npy,
+# models/*.pth, reference/*.npy (committed on purpose as deliverables)

@@ -1,0 +1,77 @@
+# =============================================================================
+# Dockerfile.compile  --  REPRODUCIBLE Hailo Dataflow Compiler (DFC) image
+# =============================================================================
+# Purpose: compile artifacts/multideepc_encode.onnx -> artifacts/multideepc_encode.hef
+# This is an ALTERNATIVE to running the DFC in a native venv on ServerAlice.
+#
+# !!! x86_64 / amd64 ONLY !!!
+#   The Hailo Dataflow Compiler is distributed for x86_64-Linux only. It will
+#   NOT run on arm64 (so NOT on the Raspberry Pi, and NOT under arm64 emulation).
+#   Build and run this image on an amd64 host (e.g. the Ubuntu 24.04 x86_64 VM).
+#   If your dev box is arm64, you must pass --platform=linux/amd64 AND accept
+#   QEMU emulation (slow); a real x86_64 host is strongly recommended.
+#
+# !!! THE DFC WHEEL IS GATED -- IT CANNOT BE DOWNLOADED FROM PUBLIC PyPI !!!
+#   You must log in to the Hailo Developer Zone (https://hailo.ai/developer-zone/)
+#   and manually download the Dataflow Compiler wheel, e.g.:
+#       hailo_dataflow_compiler-3.xx.x-py3-none-linux_x86_64.whl
+#   Place that .whl in THIS build context (the deploy/ folder) before building.
+#
+#   IMPORTANT VERSION-MATCH PITFALL: the DFC version you use here determines the
+#   HEF format. The HailoRT installed on the Pi (via `hailo-all`) MUST be a
+#   compatible/matching version, or the Pi will refuse to load the HEF.
+#   See README_HANDOFF.md.
+#
+# -----------------------------------------------------------------------------
+# BUILD (on an amd64 host, from the deploy/ folder):
+#   docker build -f Dockerfile.compile \
+#     --build-arg HAILO_DFC_WHEEL=hailo_dataflow_compiler-3.xx.x-py3-none-linux_x86_64.whl \
+#     -t multideepc-compile:amd64 .
+#
+# RUN (produces artifacts/multideepc_encode.hef inside the container; mount the
+#      artifacts dir out so the .hef lands on the host):
+#   docker run --rm -v "$PWD/artifacts:/app/artifacts" multideepc-compile:amd64
+# =============================================================================
+
+# Pin to amd64 explicitly so an arm64 host doesn't silently build the wrong arch.
+FROM --platform=linux/amd64 ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1
+
+# The DFC supports Python 3.10-3.12. Ubuntu 22.04 ships python3.10.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.10 python3.10-venv python3-pip \
+        build-essential graphviz \
+        && rm -rf /var/lib/apt/lists/*
+
+# Make `python` / `pip` resolve to 3.10.
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
+    python -m pip install --upgrade pip
+
+WORKDIR /app
+
+# --- Non-gated deps NOT bundled in the Hailo wheel (numpy, onnx) ---------------
+COPY requirements-compile.txt .
+RUN pip install --no-cache-dir -r requirements-compile.txt
+
+# --- The GATED Hailo Dataflow Compiler wheel ----------------------------------
+# Provide the filename via --build-arg HAILO_DFC_WHEEL=<that .whl>.
+# The wheel MUST already be present in the build context (downloaded manually
+# from the Hailo Developer Zone -- it is NOT on public PyPI).
+ARG HAILO_DFC_WHEEL
+COPY ${HAILO_DFC_WHEEL} /tmp/${HAILO_DFC_WHEEL}
+RUN pip install --no-cache-dir "/tmp/${HAILO_DFC_WHEEL}" && \
+    rm -f "/tmp/${HAILO_DFC_WHEEL}"
+
+# --- Compile inputs: the compile script + the ONNX to compile -----------------
+COPY hailo_compile.py ./
+COPY artifacts/multideepc_encode.onnx ./artifacts/multideepc_encode.onnx
+
+# Default: run the DFC pipeline (parse -> optimize INT8 -> compile -> HEF).
+# By default uses synthetic calibration (accuracy out of scope for bring-up).
+# Mount -v "$PWD/artifacts:/app/artifacts" so the resulting .hef is written back
+# to the host's artifacts/ folder.
+CMD ["python", "hailo_compile.py", \
+     "--onnx", "artifacts/multideepc_encode.onnx", \
+     "--out",  "artifacts/multideepc_encode.hef"]
