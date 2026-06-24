@@ -1,0 +1,36 @@
+# Hailo-8L runtime image for Raspberry Pi 5 (arm64). Uses the NPU.
+#
+# Base matches the Pi: Debian Trixie (python 3.13). python3-hailort comes from
+# the Raspberry Pi apt repo (same source the Pi host uses), so libhailort + the
+# python binding match the installed HailoRT 4.23.0 / driver.
+#
+# Build NATIVELY on the Pi (arm64). The Pi's docker bridge egress is broken, so
+# build with host networking:
+#   sudo docker build --network=host -f docker/Dockerfile.hailo -t multideepc-runtime:hailo .
+# Run with the NPU device passed through:
+#   sudo docker run -d --device /dev/hailo0 -p 8080:8080 multideepc-runtime:hailo
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && echo "deb [trusted=yes] http://archive.raspberrypi.com/debian/ trixie main" \
+      > /etc/apt/sources.list.d/raspberrypi.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      python3 python3-pip python3-numpy python3-hailort curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# fastapi/uvicorn/pydantic are not in apt; numpy + hailo_platform come from apt
+# (system dist-packages) so they match the HailoRT build.
+RUN pip3 install --no-cache-dir --break-system-packages \
+      fastapi "uvicorn[standard]" pydantic
+
+WORKDIR /app
+COPY dec_head.py app.py ./
+COPY artifacts/multideepc_encode.hef artifacts/cluster_centers.npy ./artifacts/
+
+ENV BACKEND=hailo \
+    HEF_PATH=artifacts/multideepc_encode.hef
+
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8080/health || exit 1
+EXPOSE 8080
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]

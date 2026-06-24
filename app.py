@@ -51,27 +51,41 @@ class OnnxEncoder:
         return self.sess.run(["z"], feats)[0]
 
 
+# HEF input-layer name (suffix) -> our branch input name. Fixed at compile time
+# (translate_onnx_model original_names: layer1=ndvi, 2=env, 3=soil, 4=spat, 5=img).
+_LAYER2BRANCH = {
+    "input_layer1": "x_ndvi", "input_layer2": "x_env", "input_layer3": "x_soil",
+    "input_layer4": "x_spat", "input_layer5": "x_img",
+}
+
+
 class HailoEncoder:
-    """Minimal HailoRT wrapper. Exact API differs by HailoRT version on the Pi;
-    confirm against the installed hailort before production."""
+    """Runs the compiled HEF on the Hailo-8L via HailoRT (verified against
+    HailoRT 4.23.0). FLOAT32 in/out so HailoRT auto-quantizes around the UINT8
+    net; feeds are keyed by the HEF vstream names, mapped from our branch names."""
     def __init__(self, hef_path):
-        from hailo_platform import (VDevice, HEF, ConfigureParams,
-                                    HailoStreamInterface)
-        self.VDevice = VDevice
+        from hailo_platform import (VDevice, HEF, ConfigureParams, HailoStreamInterface,
+                                    InputVStreamParams, OutputVStreamParams, FormatType)
         self.hef = HEF(hef_path)
         self.dev = VDevice()
-        cfg = ConfigureParams.create_from_hef(
-            self.hef, interface=HailoStreamInterface.PCIe)
+        cfg = ConfigureParams.create_from_hef(self.hef, interface=HailoStreamInterface.PCIe)
         self.network_group = self.dev.configure(self.hef, cfg)[0]
+        self.ng_params = self.network_group.create_params()
+        self.in_params = InputVStreamParams.make(self.network_group, format_type=FormatType.FLOAT32)
+        self.out_params = OutputVStreamParams.make(self.network_group, format_type=FormatType.FLOAT32)
+        self.in_infos = self.hef.get_input_vstream_infos()
+        self.out_name = self.hef.get_output_vstream_infos()[0].name
 
-    def encode(self, feats):
-        from hailo_platform import InferVStreams, InputVStreamParams, OutputVStreamParams
-        ivp = InputVStreamParams.make(self.network_group)
-        ovp = OutputVStreamParams.make(self.network_group)
-        with InferVStreams(self.network_group, ivp, ovp) as pipe:
-            with self.network_group.activate():
-                out = pipe.infer(feats)
-        return np.asarray(list(out.values())[0], dtype=np.float32)
+    def encode(self, feats):  # feats: {x_ndvi:[1,7], ...} float32
+        from hailo_platform import InferVStreams
+        feeds = {}
+        for info in self.in_infos:
+            branch = _LAYER2BRANCH[info.name.split("/")[-1]]
+            feeds[info.name] = feats[branch].reshape((1,) + tuple(info.shape)).astype(np.float32)
+        with InferVStreams(self.network_group, self.in_params, self.out_params) as pipe:
+            with self.network_group.activate(self.ng_params):
+                out = pipe.infer(feeds)
+        return np.asarray(out[self.out_name], dtype=np.float32).reshape(1, 64)
 
 
 def get_encoder():

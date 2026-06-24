@@ -15,11 +15,28 @@ akselerator Hailo, beserta server inferensi dan paket container untuk tim hardwa
 | 2. Ekspor ONNX | Konversi jalur encoder ke ONNX opset 11 | Selesai |
 | 3. Server inferensi | FastAPI dengan dua backend (CPU dan Hailo) | Selesai, teruji |
 | 4. Kompilasi HEF | ONNX ke format Hailo (.hef) via Dataflow Compiler | Selesai |
-| 5. Paket container | Image runtime arm64 dan image compile amd64 | Selesai |
-| 6. Verifikasi di perangkat | Uji muat HEF di Raspberry Pi sebenarnya | Menunggu perangkat |
+| 5. Paket container | Image runtime arm64 (CPU dan Hailo) dan image compile amd64 | Selesai |
+| 6. Verifikasi di perangkat | Uji muat dan inferensi HEF di Raspberry Pi sebenarnya | Selesai, teruji di hardware |
 
-Inti pekerjaan deployment telah selesai. Pipeline penuh dari `.pth` sampai `.hef`
-sudah terbukti berjalan dan menghasilkan model Hailo yang valid.
+Inti pekerjaan deployment telah selesai dan terverifikasi di hardware. Pipeline
+penuh dari `.pth` sampai inferensi di NPU sudah terbukti berjalan di Raspberry Pi 5
+dengan Hailo-8L, baik secara native maupun di dalam container Docker.
+
+## Verifikasi di Hardware (Raspberry Pi 5 + Hailo-8L)
+
+```
+HailoRT pada Pi    : 4.23.0 (firmware + runtime + driver)
+Device             : HAILO8L, /dev/hailo0 aktif
+HEF dikompilasi    : Dataflow Compiler 3.33.1 (forward-compatible, load tanpa error)
+Throughput NPU     : ~15.480 FPS (hailortcli run)
+Inferensi native   : encode NPU -> DEC head -> label, latensi ~0.34 ms/inferensi
+Inferensi container: image multideepc-runtime:hailo, /predict mengembalikan label
+                     melalui NPU (BACKEND=hailo, --device /dev/hailo0)
+```
+
+Catatan: nilai prediksi belum final karena kompilasi memakai calibration sintetis.
+Akurasi produksi memerlukan scaler pelatihan dan ekstraktor CNN, lalu kompilasi ulang.
+Yang terbukti di sini adalah jalur deployment penuh berjalan di hardware.
 
 ## Arsitektur Deployment
 
@@ -86,7 +103,8 @@ Dini deploy/
     Z_latent.npy, Q_soft.npy, y_pred.npy   Output pelatihan untuk verifikasi
 
   docker/
-    Dockerfile.runtime     Image arm64 untuk Raspberry Pi 5
+    Dockerfile.hailo       Image arm64 yang memakai NPU Hailo (produksi di Pi)
+    Dockerfile.runtime     Image arm64 backend CPU/onnx (bring-up, lintas mesin)
     Dockerfile.compile     Image amd64 untuk kompilasi HEF
     docker-compose.yml     Orkestrasi layanan runtime
     .dockerignore
@@ -138,8 +156,26 @@ BACKEND=onnx uvicorn app:app --host 0.0.0.0 --port 8080
 python test_client.py
 ```
 
-Untuk mode Hailo (di Raspberry Pi), jalankan dengan `BACKEND=hailo` setelah
-`hailo-all` terpasang dan file `.hef` sesuai versi HailoRT.
+### 5. Container Hailo di Raspberry Pi 5 (memakai NPU)
+
+Dijalankan di Pi yang sudah memiliki `hailo-all` dan device `/dev/hailo0`.
+Image dibangun native di Pi (arm64). Bridge NAT Docker pada sebagian Pi bermasalah,
+jadi build memakai host networking.
+
+```bash
+# build di Pi (dari root repo)
+sudo docker build --network=host -f docker/Dockerfile.hailo -t multideepc-runtime:hailo .
+
+# jalankan dengan NPU di-passthrough
+sudo docker run -d --name mdc-hailo --device /dev/hailo0 -p 8080:8080 \
+     -e BACKEND=hailo multideepc-runtime:hailo
+
+# uji
+curl -s http://localhost:8080/health
+python3 test_client.py
+```
+
+Contoh respons `/predict` (via NPU): `{"label_id":1,"label":"Kritis","backend":"hailo"}`.
 
 ## Catatan Penting
 
@@ -147,10 +183,11 @@ Untuk mode Hailo (di Raspberry Pi), jalankan dengan `BACKEND=hailo` setelah
    membuktikan pipeline. Untuk akurasi produksi, diperlukan scaler pelatihan dan
    ekstraktor fitur citra (CNN), lalu kompilasi ulang. Detail di `docs/scaler_status.md`.
 
-2. **Pencocokan versi.** File HEF dikompilasi dengan Dataflow Compiler 3.33.1.
-   Versi HailoRT pada Raspberry Pi harus kompatibel. Periksa dengan
-   `hailortcli fw-control identify`. Jika versi Pi lebih lama, kompilasi ulang
-   dengan versi compiler yang sesuai (prosesnya cepat dan sudah otomatis).
+2. **Pencocokan versi (sudah terverifikasi).** File HEF dikompilasi dengan Dataflow
+   Compiler 3.33.1 dan terbukti dimuat serta berjalan di HailoRT 4.23.0 pada Pi
+   tanpa error (forward-compatible). Untuk Pi dengan HailoRT lebih lama, periksa
+   dengan `hailortcli fw-control identify` dan kompilasi ulang dengan versi
+   compiler yang sesuai (prosesnya cepat).
 
 3. **Pembaruan ke depan.** Saat ekstraktor CNN dan scaler tersedia, jalur citra
    dapat diaktifkan penuh tanpa mengubah arsitektur container.
