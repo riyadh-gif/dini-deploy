@@ -1,0 +1,113 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+
+\definecolor{accent}{HTML}{1F6FEB}
+\definecolor{ok}{HTML}{1A7F37}
+\definecolor{warn}{HTML}{9A6700}
+\hypersetup{colorlinks=true, urlcolor=accent, linkcolor=accent}
+
+\titleformat{\section}{\large\bfseries\color{accent}}{}{0em}{}
+\titlespacing{\section}{0pt}{10pt}{4pt}
+
+\pagestyle{fancy}\fancyhf{}
+\lhead{\small Dini Deploy}\rhead{\small Sprint Report}
+\cfoot{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\newcommand{\done}{\textbf{\color{ok}Done}}
+\newcommand{\prog}{\textbf{\color{warn}In Progress}}
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries Weekly Sprint Report}\\[2pt]
+{\large Deployment Model MultiDeepC ke Raspberry Pi 5 + Hailo-8L}\\[6pt]
+{\small Sprint: Deployment Bring-up \quad|\quad Tanggal: \today \quad|\quad Owner: Riyadh}\\
+{\small Repo: \url{https://github.com/riyadh-gif/dini-deploy} (private)}
+\end{center}
+
+\vspace{4pt}
+\hrule
+\vspace{8pt}
+
+\section{Sprint Goal}
+Mengemas model MultiDeepC (klasifikasi kondisi lahan per grid) menjadi container Docker
+yang dapat dijalankan di perangkat edge Raspberry Pi 5 dengan akselerator Hailo-8L, lalu
+memverifikasi seluruh jalur inferensi di hardware sebenarnya sebelum diserahkan ke tim hardware.
+
+\section{Ringkasan Eksekutif}
+Container Docker yang memakai NPU Hailo-8L sudah dibangun dan terbukti berjalan di Raspberry Pi 5.
+Seluruh pipeline dari checkpoint PyTorch sampai inferensi di NPU sudah diverifikasi di hardware.
+Latensi inferensi sekitar 0.3 ms per grid. Dua artefak preprocessing (scaler dan CNN) masih menjadi
+dependensi terbuka untuk akurasi produksi.
+
+\section{Pekerjaan Selesai Sprint Ini}
+\begin{itemize}[leftmargin=1.4em,itemsep=2pt]
+  \item \done\ Rekonstruksi arsitektur MultiDeepC dari checkpoint, strict load 115 tensor.
+  \item \done\ Verifikasi clustering head DEC (Student-t, alpha 1.0) cocok output pelatihan (selisih 5e-7).
+  \item \done\ Ekspor jalur encoder ke ONNX opset 11, seluruh operator didukung Hailo.
+  \item \done\ Kompilasi HEF via Hailo Dataflow Compiler 3.33.1, target hailo8l.
+  \item \done\ Build dan jalankan container Docker (backend CPU dan backend Hailo NPU) di Pi.
+  \item \done\ Verifikasi di hardware: HEF load pada HailoRT 4.23.0, inferensi NPU end-to-end.
+  \item \done\ Repo, README, dokumen serah terima, dan skrip PoC demo siap untuk tim hardware.
+\end{itemize}
+
+\section{Metrik Sprint}
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Metrik} & \textbf{Nilai} & \textbf{Catatan} \\
+\midrule
+Latensi inferensi (NPU encode) & 0.27 ms median & per grid, sinkron \\
+Latensi full path (NPU + DEC head) & 0.34 ms mean & termasuk clustering head CPU \\
+Throughput streaming (NPU) & 15.480 inferensi/detik & mode pipelined \\
+Latensi via container HTTP & 5 sampai 6 ms & termasuk FastAPI dan jaringan \\
+Ukuran HEF & 762 KB & model terkompilasi \\
+Image container Hailo & 403 MB & arm64, debian trixie \\
+Operator tidak didukung Hailo & 0 & tidak perlu partisi graf \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Demo}
+\begin{enumerate}[leftmargin=1.4em,itemsep=1pt]
+  \item \texttt{sudo docker ps} menampilkan container \texttt{mdc-hailo} berjalan di Pi.
+  \item \texttt{GET /health} mengembalikan \texttt{"backend":"hailo"} (inferensi di NPU).
+  \item \texttt{POST /predict} dengan data 1 grid mengembalikan label kondisi lahan.
+  \item Skrip \texttt{poc\_demo.py} menampilkan tabel beberapa grid menuju label beserta latensi.
+\end{enumerate}
+
+\section{Blocker dan Risiko}
+\begin{itemize}[leftmargin=1.4em,itemsep=2pt]
+  \item \prog\ \textbf{Scaler pelatihan hilang.} Saat ini memakai placeholder identitas, sehingga nilai
+        prediksi belum membedakan antar kelas. Perlu file scaler atau matrix input pelatihan.
+  \item \prog\ \textbf{CNN feature extractor hilang.} Branch citra (64 fitur) diisi nol. Perlu model CNN
+        beserta kode arsitekturnya untuk pipeline citra end-to-end.
+  \item \textbf{Akurasi belum final.} Kompilasi memakai calibration sintetis. Setelah dua artefak di atas
+        tersedia, dilakukan kompilasi ulang untuk akurasi produksi.
+\end{itemize}
+
+\section{Rencana Sprint Berikutnya}
+\begin{itemize}[leftmargin=1.4em,itemsep=2pt]
+  \item Memperoleh scaler dan CNN extractor dari pemilik model, lalu kompilasi ulang HEF.
+  \item Validasi akurasi pasca kuantisasi terhadap output pelatihan.
+  \item Menambahkan auto-start container di Pi (systemd atau restart policy) untuk operasi lapangan.
+  \item Mengaktifkan jalur preprocessing on-device (perhitungan NDVI dan ekstraksi fitur citra).
+\end{itemize}
+
+\section{Tautan}
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+  \item Repositori (kode, artefak, dokumentasi): \url{https://github.com/riyadh-gif/dini-deploy}
+  \item Panduan serah terima tim hardware: \texttt{docs/HANDOFF.md}
+  \item Status preprocessing dan langkah lanjut: \texttt{docs/scaler\_status.md}
+\end{itemize}
+
+\end{document}
