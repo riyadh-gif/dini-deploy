@@ -8,6 +8,8 @@
 \usepackage{titlesec}
 \usepackage{hyperref}
 \usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{float}
 
 \definecolor{accent}{HTML}{1F6FEB}
 \definecolor{ok}{HTML}{1A7F37}
@@ -84,6 +86,21 @@ Operator tidak didukung Hailo & 0 & tidak perlu partisi graf \\
   \item \texttt{POST /predict} dengan data 1 grid mengembalikan label kondisi lahan.
   \item Skrip \texttt{poc\_demo.py} menampilkan tabel beberapa grid menuju label beserta latensi.
 \end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{img/demo_curl.jpg}
+\caption{Container Hailo berjalan di Raspberry Pi 5 (\texttt{docker ps}), endpoint
+\texttt{/health} melaporkan \texttt{backend: hailo}, dan \texttt{/predict} mengembalikan
+label kondisi lahan dari NPU.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{img/demo_poc.jpg}
+\caption{PoC demo (\texttt{poc\_demo.py}) untuk tiga grid dan verifikasi throughput NPU
+melalui \texttt{hailortcli run} (sekitar 15.231 FPS streaming).}
+\end{figure}
 
 \section{Blocker dan Risiko}
 \begin{itemize}[leftmargin=1.4em,itemsep=2pt]
