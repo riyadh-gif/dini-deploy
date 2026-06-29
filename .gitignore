@@ -19,3 +19,9 @@ dfc_install.log
 
 # Keep tracked: artifacts/*.onnx, artifacts/*.hef, artifacts/*.npy,
 # models/*.pth, reference/*.npy (committed on purpose as deliverables)
+
+# LaTeX build output
+*.pdf
+*.aux
+*.log
+*.out
